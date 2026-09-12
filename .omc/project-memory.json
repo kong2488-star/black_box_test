@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1789131521556,
+  "projectRoot": "C:\\Users\\User\\orca\\black_box_test",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "EVENT": {
+      "path": "EVENT",
+      "purpose": null,
+      "fileCount": 414,
+      "lastAccessed": 1789131521492,
+      "keyFiles": [
+        "20260618_103433_EVT_1.avi",
+        "20260618_174035_EVT_1.avi",
+        "20260618_174209_EVT_1.avi",
+        "20260618_175137_EVT_1.avi",
+        "20260618_181538_EVT_1.avi"
+      ]
+    },
+    "INF": {
+      "path": "INF",
+      "purpose": null,
+      "fileCount": 88,
+      "lastAccessed": 1789131521494,
+      "keyFiles": [
+        "20260830_140103_INF_1.avi",
+        "20260830_140604_INF_1.avi",
+        "20260830_141104_INF_1.avi",
+        "20260830_141605_INF_1.avi",
+        "20260830_142106_INF_1.avi"
+      ]
+    },
+    "modules": {
+      "path": "modules",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1789131521495,
+      "keyFiles": []
+    },
+    "video": {
+      "path": "video",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1789131521495,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
