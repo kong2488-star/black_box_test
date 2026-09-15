@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1789131521556,
+  "lastScanned": 1789389856862,
   "projectRoot": "C:\\Users\\User\\orca\\black_box_test",
   "techStack": {
     "languages": [],
@@ -36,7 +36,7 @@
       "path": "EVENT",
       "purpose": null,
       "fileCount": 414,
-      "lastAccessed": 1789131521492,
+      "lastAccessed": 1789389856800,
       "keyFiles": [
         "20260618_103433_EVT_1.avi",
         "20260618_174035_EVT_1.avi",
@@ -49,7 +49,7 @@
       "path": "INF",
       "purpose": null,
       "fileCount": 88,
-      "lastAccessed": 1789131521494,
+      "lastAccessed": 1789389856801,
       "keyFiles": [
         "20260830_140103_INF_1.avi",
         "20260830_140604_INF_1.avi",
@@ -62,17 +62,93 @@
       "path": "modules",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1789131521495,
+      "lastAccessed": 1789389856802,
       "keyFiles": []
     },
     "video": {
       "path": "video",
       "purpose": null,
-      "fileCount": 0,
-      "lastAccessed": 1789131521495,
-      "keyFiles": []
+      "fileCount": 2,
+      "lastAccessed": 1789389856802,
+      "keyFiles": [
+        "20260620_141927_EVT_1 copy.avi",
+        "20260620_141927_EVT_1.avi"
+      ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "modules/search/coarse_probe.py",
+      "accessCount": 12,
+      "lastAccessed": 1789437022529,
+      "type": "directory"
+    },
+    {
+      "path": "modules/search/fine_probe.py",
+      "accessCount": 4,
+      "lastAccessed": 1789443714981,
+      "type": "directory"
+    },
+    {
+      "path": "modules/search/docs/coarse-fine-experiment-summary.md",
+      "accessCount": 2,
+      "lastAccessed": 1789390217795,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/docs/gemini-change-application-final.md",
+      "accessCount": 2,
+      "lastAccessed": 1789390225950,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/coarse-fine-experiment-summary.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390023327,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/coarse-fine-implementation-notes.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390024024,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/gemini-3.8-agentic-review.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390024704,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/gemini-3.8-apply-targets.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390025326,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/gemini-change-application-final.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390025662,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/fine_probe_human_reviews.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390026009,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/FULL_PROMPTS.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390026111,
+      "type": "file"
+    },
+    {
+      "path": "modules/search/PROMPTS.md",
+      "accessCount": 1,
+      "lastAccessed": 1789390026190,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

@@ -455,8 +455,8 @@ model_experiment:
 - [Gemini 3.8 Flash / agentic 조사 기록](./gemini-3.8-agentic-review.md)
 - [Coarse / Fine 단계별 설정과 구현 참고](./coarse-fine-implementation-notes.md)
 - [제품 저장소 적용 대상 조사](./gemini-3.8-apply-targets.md)
-- [Coarse Probe Report](./probe_report.md)
-- [Fine Probe Report](./fine_probe_report.md)
+- [Coarse Probe Report](../probe_report.md)
+- [Fine Probe Report](../fine_probe_report.md)
 - [Fine Probe 사람 검토 기록](./fine_probe_human_reviews.md)
 
 ### 공식 참고

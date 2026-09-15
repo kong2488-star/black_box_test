@@ -60,7 +60,7 @@ from pathlib import Path
 MODEL = "gemini-3.7-flash"
 MEDIA_RESOLUTION = "low"          # low | medium | high | ultra_high (3.x 는 소문자)
 FPS = 1.0                         # (0.0, 24.0], SDK 기본 1.0
-CLIP_SECONDS = 300                # 원본 절대시각 환산용 (clip_index * CLIP_SECONDS + at_sec)
+CLIP_SECONDS = 300                # ffprobe 가 없을 때만 쓰는 폴백. 길이는 클립마다 실측한다(clip_seconds).
 CONCURRENCY = 3                   # 무료 티어 rate limit이 실제 상한이다. 낮게 시작할 것
 
 # gemini-3.7-flash 유료 티어 (2026-09 기준, 100만 토큰당 USD).
@@ -578,6 +578,10 @@ def process_clip(client, ix, clip: dict, prompt: str, args, prompt_hash: str,
                  cached: dict | None, counter: dict, total: int) -> dict:
     mime = MIME_BY_EXT.get(clip["path"].suffix.lower(), "video/mp4")
 
+    # 길이는 고정 300초로 가정하지 않는다. 클립마다 ffprobe 로 실측한다.
+    # ffprobe 가 없거나 못 읽으면 None → tok/영상초·환산은 CLIP_SECONDS 로 떨어진다.
+    clip_seconds = probe_duration(str(clip["path"]))
+
     row = {
         "ts": now_iso(),
         "tag": args.tag,
@@ -587,7 +591,7 @@ def process_clip(client, ix, clip: dict, prompt: str, args, prompt_hash: str,
         "clip_index": clip["clip_index"],
         "clip_ordinal": clip["clip_ordinal"],
         "index_base": args.index_base_used,
-        "clip_seconds_assumed": CLIP_SECONDS,
+        "clip_seconds": clip_seconds,
         "model": args.model,
         "media_resolution": args.media_resolution,
         "fps": args.fps,
@@ -676,7 +680,9 @@ def process_clip(client, ix, clip: dict, prompt: str, args, prompt_hash: str,
                 "generate_sec": round(generate_sec, 2),
                 "input_tokens": tok_in,
                 "output_tokens": tok_out,
-                "tokens_per_sec_of_video": round(tok_in / CLIP_SECONDS, 1) if CLIP_SECONDS else None,
+                "tokens_per_sec_of_video": (
+                    round(tok_in / (clip_seconds or CLIP_SECONDS), 1)
+                    if (clip_seconds or CLIP_SECONDS) else None),
                 "cost_usd_est": round(
                     tok_in / 1_000_000 * PRICE_IN_PER_1M_USD
                     + tok_out / 1_000_000 * PRICE_OUT_PER_1M_USD, 6),
@@ -762,7 +768,7 @@ def top_candidate_summary(row: dict, starts: dict | None = None) -> str:
     ordinal = row.get("clip_ordinal")
     if ordinal is None:
         ordinal = row.get("clip_index", 0)
-    abs_sec = ordinal * row.get("clip_seconds_assumed", CLIP_SECONDS) + (at or 0)
+    abs_sec = ordinal * (row.get("clip_seconds") or CLIP_SECONDS) + (at or 0)
     obs = "; ".join(top.get("observed") or [])[:90]
     return (f"at {fmt(at, '.0f')}s (원본 ~{int(abs_sec // 60)}분{int(abs_sec % 60):02d}초) / "
             f"{top.get('event_type')} / score {fmt(top.get('score'), '.2f')} / {obs}")
@@ -788,6 +794,7 @@ def write_report(rows: list[dict]) -> None:
 
     g_tok_in = g_tok_out = g_cost = 0
     g_ok = g_fail = g_zero = g_cand = 0
+    g_secs = 0.0   # 실측 영상 길이의 누적 (성공 건만). 평균 tok/영상초 분모.
 
     for tag in sorted(by_tag):
         lines.append(f"## tag: `{tag}`")
@@ -812,6 +819,9 @@ def write_report(rows: list[dict]) -> None:
                 s_in += r.get("input_tokens") or 0
                 s_out += r.get("output_tokens") or 0
                 s_cost += r.get("cost_usd_est") or 0
+                g_secs += (r.get("clip_seconds")
+                           or (starts.get(r.get("clip_path")) or {}).get("duration_sec")
+                           or CLIP_SECONDS)
                 g_ok += 1
                 cc = r.get("candidate_count")
                 if cc == 0:
@@ -837,9 +847,9 @@ def write_report(rows: list[dict]) -> None:
     lines.append(f"- 성공 {g_ok}건 / 실패 {g_fail}건")
     lines.append(f"- 입력 {g_tok_in:,} tok · 출력 {g_tok_out:,} tok · 추정비용 ${g_cost:.4f}")
     lines.append(f"- 후보 총 {g_cand}개, **후보 0개인 클립 {g_zero} / {g_ok}건**  ← 오탐 경향의 첫 신호")
-    if g_ok:
-        lines.append(f"- 평균 입력토큰/영상초 = {g_tok_in / (g_ok * CLIP_SECONDS):.1f} "
-                     f"(메모의 low ≈ 100 tok/s 추정과 대조할 것)")
+    if g_ok and g_secs:
+        lines.append(f"- 평균 입력토큰/영상초 = {g_tok_in / g_secs:.1f} "
+                     f"(실측 영상 {g_secs:.0f}초 기준 · 메모의 low ≈ 100 tok/s 추정과 대조할 것)")
     lines.append("")
     lines.append("## 실행 뒤에 사람이 해야 하는 일")
     lines.append("")
