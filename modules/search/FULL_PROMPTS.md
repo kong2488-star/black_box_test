@@ -1,34 +1,18 @@
-<!-- 이 파일은 현재 프롬프트 소스를 펼쳐 쓴 수동 참고 문서다. -->
-<!-- 원본 변경 시 coarse_probe.py / fine_probe.py를 기준으로 이 문서도 수동 갱신한다. -->
+<!-- 이 파일은 dump_prompts.py 가 생성한다. 손으로 고치지 마라. -->
 
-# Coarse / Fine 전체 프롬프트
+# Coarse / Fine 조립 완성형 프롬프트
 
-> 이 문서는 각 단계에서 모델에 전달되는 프롬프트를 한눈에 검토하기 위한 스냅샷입니다.
-> 프롬프트의 유일한 원본은 `coarse_probe.py`와 `fine_probe.py`이며, 이 문서는 자동 생성되지 않습니다.
+`PROMPTS.md` 가 부품(공통 블록 + 델타)을 보여 준다면, 이 문서는 **실제로 전송되는**
+조립 결과다. Fine 의 `{HINT_TYPE}`·`{HINT_SUMMARY}` 만 런타임에 후보 값으로 바뀐다.
 
-## 작성 기준
-
-| 구분 | 원본 | 작성 기준 지문 |
+| 구분 | 원본 | 해시 |
 |---|---|---|
-| Coarse | `coarse_probe.py:PROMPT` + 조립 값 | `86d529856262` |
-| Fine | `fine_probe.py:COMMON_BLOCK` + `DELTAS` | `a9b72e476fc3` (`fine-p1`) |
-
-- Fine의 `{{HINT_TYPE}}`과 `{{HINT_SUMMARY}}`는 실행마다 Coarse 결과로 채워지는 런타임 값입니다.
-- Coarse의 `LANE_CHANGE` 후보는 Fine에서 `SOLID_LINE_LANE_CHANGE`로 매핑됩니다.
-- 응답 JSON Schema와 모델 실행 설정은 이 문서의 범위에 포함하지 않습니다.
-
-## 목차
-
-- [1. Coarse 전체 프롬프트](#1-coarse-전체-프롬프트)
-- [2. Fine 전체 프롬프트](#2-fine-전체-프롬프트)
-  - [`SIGNAL`](#21-signal)
-  - [`CENTER_LINE_CROSSING`](#22-center_line_crossing)
-  - [`SOLID_LINE_LANE_CHANGE`](#23-solid_line_lane_change)
-  - [`MOTORCYCLE_HELMET_NON_USE`](#24-motorcycle_helmet_non_use)
+| Coarse | `coarse_probe.py:PROMPT` (+ 조립) | `1a77e2b1c5f3` |
+| Fine | `fine_probe.py:COMMON_BLOCK` + `DELTAS` | `cb96f8174ff3` (fine-p2) |
 
 ---
 
-## 1. Coarse 전체 프롬프트
+## 1. Coarse
 
 ```text
 당신은 장시간 블랙박스 영상에서 시각적 사건의 **후보 시간 구간을 찾는 Coarse Search 모델**입니다.
@@ -74,17 +58,24 @@
 각 Candidate의 `span`은 사건이 발생했을 가능성이 있는 시간 범위를 나타냅니다.
 `at`은 Candidate를 대표하는 시점이며, 사건을 가장 잘 확인할 수 있다고 판단되는 시점을 선택하세요.
 `observed`에는 Candidate를 선택한 이유가 되는 **직접 관찰 가능한 시각적 사실**만 기록하세요.
+유형에 따라 다음 축을 우선해 적으세요. 이 값은 다음 단계가 이 후보를 다시 찾는 데 쓰입니다.
+
+* `SIGNAL`: 신호등 점등 색과 그 변화, 차량과 정지선의 상대 위치 변화
+* `CENTER_LINE_CROSSING`: 선의 **색**과 **실선/복선 여부**, 차체와 그 선의 상대 위치 변화
+* `LANE_CHANGE`: 선의 **색**과 **실선/점선 여부**, 차체의 횡방향 이동
+* `MOTORCYCLE_HELMET_NON_USE`: 이륜차와 탑승자의 존재, 탑승자 머리 부분의 가시 여부
+
+야간, 역광, 우천, 가림처럼 관찰을 제한한 조건이 있었다면 그것도 `observed`에 함께 적으세요. 후보를 제거하는 이유가 아니라 다음 단계가 알아야 할 사실입니다.
+
 `score`는 사건 발생 확률이 아니라 Candidate 간 **상대적인 검색 우선순위**를 나타냅니다.
+**이 응답 안의 Candidate들에는 서로 다른 `score`를 주세요.** 여러 후보에 같은 값을 쓰면 우선순위 정보가 사라집니다. 확신이 비슷하더라도 다시 볼 순서를 정하고, 그 순서가 드러나도록 값을 벌리세요.
 
 검색 대상 사건의 가능성이 있는 구간을 찾지 못했다면 빈 Candidate 목록을 반환하세요.
 ```
 
 ---
 
-## 2. Fine 전체 프롬프트
-
-아래 네 프롬프트는 `COMMON_BLOCK`에 각 이벤트의 델타를 삽입한 완성형입니다.
-실행 시 `{{HINT_TYPE}}`, `{{HINT_SUMMARY}}`만 해당 후보의 실제 값으로 바뀝니다.
+## 2. Fine
 
 ### 2.1 `SIGNAL`
 
@@ -104,13 +95,21 @@
 ① 신호등의 점등 상태를 식별할 수 있다
 ② 대상 차량이 정지선을 통과하는 시점을 식별할 수 있다
 ③ 그 둘의 **시간 관계**를 관찰할 수 있다
+④ **정지선을 통과하는 순간의 점등 색**을 식별할 수 있다
 
 ### 이 사건의 성립 축
 
 **시간 순서가 이 사건의 실체입니다.** 신호 상태와 정지선 통과 시점을 `temporal_facts` 에 각각의 `at_offset_ms` 와 함께 적으세요.
 두 시점 중 하나라도 밀리초로 짚을 수 없다면 `NOT_OBSERVED` 가 아니라 `UNCERTAIN` 입니다.
 
-관찰 요소 이름 예시: `RED_SIGNAL`, `GREEN_SIGNAL`, `STOP_LINE`, `TARGET_VEHICLE`
+**중요 — 선후가 뒤집히면 다른 관찰입니다.** 점등 색이 바뀐 시점과 정지선 통과 시점은 **어느 쪽이 먼저인지까지** 적어야 합니다. 색이 바뀐 뒤에 통과한 것과 통과한 뒤에 색이 바뀐 것은 한 장면만 보면 거의 같아 보이지만 서로 다른 관찰입니다.
+**통과 순간의 색을 `primitives` 에 반드시 남기세요.** 통과 순간이 적색이면 `kind: "RED_AT_CROSSING"`, `state: "PRESENT"` 이고, 황색이었다면 `RED_AT_CROSSING` 을 `ABSENT`, `AMBER_AT_CROSSING` 을 `PRESENT` 로 적습니다. 통과 순간의 색을 짚을 수 없었다면 `UNCERTAIN` 입니다.
+관찰된 색이 무엇이든 판정은 위 3값 규칙만 따릅니다. 색으로 위반 여부를 가르지 마세요.
+
+관찰 요소 이름 예시: `RED_SIGNAL`, `AMBER_SIGNAL`, `GREEN_SIGNAL`, `STOP_LINE`, `TARGET_VEHICLE`, `RED_AT_CROSSING`, `AMBER_AT_CROSSING`, `GREEN_AT_CROSSING`
+
+`temporal_facts[].fact` 는 문장이 아니라 **코드형 이름**으로 적으세요. 예시: `SIGNAL_TURNED_AMBER`, `SIGNAL_TURNED_RED`, `VEHICLE_CROSSED_STOP_LINE`, `CROSSING_AFTER_RED_ONSET`, `CROSSING_BEFORE_RED_ONSET`
+예시에 없는 이름을 만들어도 되지만, **같은 관찰에는 항상 같은 이름**을 쓰세요.
 
 ## 앞 단계가 넘긴 참고 정보
 
@@ -194,6 +193,9 @@
 
 관찰 요소 이름 예시: `YELLOW_CENTER_LINE`, `YELLOW_DOUBLE_LINE`, `TARGET_VEHICLE`, `VEHICLE_BODY_OVER_LINE`
 
+`temporal_facts[].fact` 는 문장이 아니라 **코드형 이름**으로 적으세요. 예시: `VEHICLE_TOUCHED_CENTER_LINE`, `VEHICLE_BODY_CROSSED_CENTER_LINE`, `VEHICLE_RETURNED_TO_OWN_LANE`
+예시에 없는 이름을 만들어도 되지만, **같은 관찰에는 항상 같은 이름**을 쓰세요.
+
 ## 앞 단계가 넘긴 참고 정보
 
 * 앞 단계의 유형 추정: `{{HINT_TYPE}}`
@@ -276,6 +278,9 @@
 선의 종류를 판별할 수 없었다면 `UNCERTAIN` 입니다.
 
 관찰 요소 이름 예시: `WHITE_SOLID_LINE`, `WHITE_DASHED_LINE`, `TARGET_VEHICLE`, `VEHICLE_CROSSES_LINE`
+
+`temporal_facts[].fact` 는 문장이 아니라 **코드형 이름**으로 적으세요. 예시: `VEHICLE_STARTED_LATERAL_MOVE`, `VEHICLE_CROSSED_LINE`, `VEHICLE_SETTLED_IN_ADJACENT_LANE`
+예시에 없는 이름을 만들어도 되지만, **같은 관찰에는 항상 같은 이름**을 쓰세요.
 
 ## 앞 단계가 넘긴 참고 정보
 
@@ -417,3 +422,4 @@
 
 **지지하는 근거를 찾지 못했다면 `NOT_OBSERVED` 가 정상적인 결과입니다.** 억지로 사건을 만들어내지 마세요.
 ```
+

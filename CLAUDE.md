@@ -37,8 +37,8 @@ python modules/search/fine_probe.py --event SOLID_LINE_LANE_CHANGE
 python modules/search/fine_probe.py --print-prompt SIGNAL  # 프롬프트 원문 확인(Owner 검토용)
 python modules/search/fine_probe.py --report-only
 
-# 프롬프트 참고 문서 재생성 — Coarse 1 + Fine 4 를 PROMPTS.md 로 찍는다.
-# 프롬프트(PROMPT/COMMON_BLOCK/DELTAS)를 고쳤으면 이걸 돌려 문서를 맞춘다. 손으로 PROMPTS.md 를 고치지 않는다.
+# 프롬프트 참고 문서 재생성 — PROMPTS.md(부품) + FULL_PROMPTS.md(조립 완성형) 둘 다 찍는다.
+# 프롬프트(PROMPT/COMMON_BLOCK/DELTAS)를 고쳤으면 이걸 돌려 문서를 맞춘다. 두 문서 모두 손으로 고치지 않는다.
 python modules/search/dump_prompts.py
 ```
 

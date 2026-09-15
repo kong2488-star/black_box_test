@@ -73,7 +73,7 @@ CONCURRENCY = 3              # 무료 티어 rate limit이 실제 상한이다
 CLIP_SECONDS = 300           # Coarse 클립 길이. 원본 절대시각 환산용
 
 # experiment-guide.md §7 — 프롬프트 전문을 실험 기록에 복사하지 않고 버전으로 가리킨다
-PROMPT_VERSION = "fine-p1"
+PROMPT_VERSION = "fine-p2"
 
 # gemini-3.7-flash 유료 티어 (2026-09 기준, 100만 토큰당 USD).
 # 주의: 3.x Flash 는 2027-01-01 부터 2배로 오른다 (0.75 -> 1.50, 3.75 -> 7.50).
@@ -198,13 +198,29 @@ DELTAS = {
         "conditions": (
             "① 신호등의 점등 상태를 식별할 수 있다\n"
             "② 대상 차량이 정지선을 통과하는 시점을 식별할 수 있다\n"
-            "③ 그 둘의 **시간 관계**를 관찰할 수 있다"
+            "③ 그 둘의 **시간 관계**를 관찰할 수 있다\n"
+            "④ **정지선을 통과하는 순간의 점등 색**을 식별할 수 있다"
         ),
-        "primitives_hint": "`RED_SIGNAL`, `GREEN_SIGNAL`, `STOP_LINE`, `TARGET_VEHICLE`",
+        "primitives_hint": (
+            "`RED_SIGNAL`, `AMBER_SIGNAL`, `GREEN_SIGNAL`, `STOP_LINE`, `TARGET_VEHICLE`, "
+            "`RED_AT_CROSSING`, `AMBER_AT_CROSSING`, `GREEN_AT_CROSSING`"
+        ),
         "axis": (
             "**시간 순서가 이 사건의 실체입니다.** 신호 상태와 정지선 통과 시점을 "
             "`temporal_facts` 에 각각의 `at_offset_ms` 와 함께 적으세요.\n"
-            "두 시점 중 하나라도 밀리초로 짚을 수 없다면 `NOT_OBSERVED` 가 아니라 `UNCERTAIN` 입니다."
+            "두 시점 중 하나라도 밀리초로 짚을 수 없다면 `NOT_OBSERVED` 가 아니라 `UNCERTAIN` 입니다.\n\n"
+            "**중요 — 선후가 뒤집히면 다른 관찰입니다.** 점등 색이 바뀐 시점과 정지선 통과 시점은 "
+            "**어느 쪽이 먼저인지까지** 적어야 합니다. 색이 바뀐 뒤에 통과한 것과 통과한 뒤에 색이 "
+            "바뀐 것은 한 장면만 보면 거의 같아 보이지만 서로 다른 관찰입니다.\n"
+            "**통과 순간의 색을 `primitives` 에 반드시 남기세요.** 통과 순간이 적색이면 "
+            "`kind: \"RED_AT_CROSSING\"`, `state: \"PRESENT\"` 이고, 황색이었다면 "
+            "`RED_AT_CROSSING` 을 `ABSENT`, `AMBER_AT_CROSSING` 을 `PRESENT` 로 적습니다. "
+            "통과 순간의 색을 짚을 수 없었다면 `UNCERTAIN` 입니다.\n"
+            "관찰된 색이 무엇이든 판정은 위 3값 규칙만 따릅니다. 색으로 위반 여부를 가르지 마세요."
+        ),
+        "temporal_hint": (
+            "`SIGNAL_TURNED_AMBER`, `SIGNAL_TURNED_RED`, `VEHICLE_CROSSED_STOP_LINE`, "
+            "`CROSSING_AFTER_RED_ONSET`, `CROSSING_BEFORE_RED_ONSET`"
         ),
     },
     "CENTER_LINE_CROSSING": {
@@ -218,6 +234,10 @@ DELTAS = {
         ),
         "primitives_hint": (
             "`YELLOW_CENTER_LINE`, `YELLOW_DOUBLE_LINE`, `TARGET_VEHICLE`, `VEHICLE_BODY_OVER_LINE`"
+        ),
+        "temporal_hint": (
+            "`VEHICLE_TOUCHED_CENTER_LINE`, `VEHICLE_BODY_CROSSED_CENTER_LINE`, "
+            "`VEHICLE_RETURNED_TO_OWN_LANE`"
         ),
         "axis": (
             "성립 축은 시간에 따른 차체 위치 변화입니다. `temporal_facts` 를 사용하세요.\n"
@@ -235,6 +255,10 @@ DELTAS = {
         ),
         "primitives_hint": (
             "`WHITE_SOLID_LINE`, `WHITE_DASHED_LINE`, `TARGET_VEHICLE`, `VEHICLE_CROSSES_LINE`"
+        ),
+        "temporal_hint": (
+            "`VEHICLE_STARTED_LATERAL_MOVE`, `VEHICLE_CROSSED_LINE`, "
+            "`VEHICLE_SETTLED_IN_ADJACENT_LANE`"
         ),
         "axis": (
             "성립 축은 시간에 따른 차체의 횡단입니다. `temporal_facts` 를 사용하세요.\n\n"
@@ -255,6 +279,8 @@ DELTAS = {
             "③ 그 머리에 안전모가 없다"
         ),
         "primitives_hint": "`MOTORCYCLE_RIDER`, `HELMET_ON_RIDER`",
+        # 객체 속성 사건 — 시간 축이 없다. 빈 값이면 _axis_block 이 줄 자체를 넣지 않는다.
+        "temporal_hint": "",
         "axis": (
             "**시간 순서가 필요하지 않습니다.** `temporal_facts` 를 비워 두어도 정상입니다.\n\n"
             "**중요 — 상태 구분:** 머리가 잘 보이고 안전모가 없으면 "
@@ -717,6 +743,28 @@ def seed_uri_cache_from_coarse(coarse_rows: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _axis_block(delta: dict) -> str:
+    """성립 축 + primitive 예시 + temporal fact 예시를 조립한다.
+
+    temporal fact 예시를 주는 근거는 실측이다 — run1 에서 `primitives[].kind` 는 예시를 준
+    결과 9종 127회로 수렴했는데, 예시가 없던 `temporal_facts[].fact` 는 34종이 각각 한 번씩만
+    나와 산문으로 흩어졌다 (docs/coarse-fine-experiment-summary.md §5-4). 같은 관찰이 매번
+    다른 문장이 되면 사람이 집계할 수도, 나중에 텍스트로 검색할 수도 없다.
+
+    공통 블록이 아니라 델타에 두는 것은 의도다. 공통이 "시간을 반드시 적어라"고 하면
+    안전모 델타가 그것을 취소해야 하고, 취소 지시는 가장 안 지켜진다.
+    """
+    out = delta["axis"] + "\n\n관찰 요소 이름 예시: " + delta["primitives_hint"]
+    th = delta.get("temporal_hint") or ""
+    if th:
+        out += (
+            "\n\n`temporal_facts[].fact` 는 문장이 아니라 **코드형 이름**으로 적으세요. "
+            "예시: " + th + "\n"
+            "예시에 없는 이름을 만들어도 되지만, **같은 관찰에는 항상 같은 이름**을 쓰세요."
+        )
+    return out
+
+
 def build_prompt(event_type: str, hint_type: str, hint_summary: str) -> str:
     delta = DELTAS[event_type]
     return (
@@ -724,7 +772,7 @@ def build_prompt(event_type: str, hint_type: str, hint_summary: str) -> str:
         .replace("{EVENT_TYPE}", event_type)
         .replace("{EVENT_DEFINITION}", delta["definition"])
         .replace("{REQUIRED_CONDITIONS}", delta["conditions"])
-        .replace("{AXIS}", delta["axis"] + "\n\n관찰 요소 이름 예시: " + delta["primitives_hint"])
+        .replace("{AXIS}", _axis_block(delta))
         .replace("{HINT_TYPE}", hint_type or "(없음)")
         .replace("{HINT_SUMMARY}", hint_summary or "(없음)")
     )

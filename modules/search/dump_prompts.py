@@ -7,6 +7,10 @@
 .py 상수를 고치고 `python modules/search/dump_prompts.py` 로 다시 찍는다. 그러면 문서와
 코드가 어긋나지 않고, 문서 상단의 해시로 최신 여부가 확인된다.
 
+PROMPTS.md 는 **부품**(공통 블록 + 델타)을, FULL_PROMPTS.md 는 **조립된 완성형**을 찍는다.
+둘 다 이 스크립트가 만든다 — FULL_PROMPTS.md 는 2026-09-15 이전까지 수동 관리였고 실제로
+한 번 낡았다(헤더 해시가 소스와 어긋남). 사람이 손으로 맞추는 사본은 반드시 표류한다.
+
 두 probe 스크립트는 genai 를 함수 안에서 lazy import 하므로 SDK 없이도 import 된다.
 """
 from __future__ import annotations
@@ -22,6 +26,7 @@ import coarse_probe as coarse  # noqa: E402
 import fine_probe as fine  # noqa: E402
 
 OUT = HERE / "PROMPTS.md"
+OUT_FULL = HERE / "FULL_PROMPTS.md"
 
 
 def sha12(text: str) -> str:
@@ -108,7 +113,46 @@ def build() -> str:
         w("")
         w(f"**primitive 이름 예시:** {d['primitives_hint']}")
         w("")
+        if d.get("temporal_hint"):
+            w(f"**`temporal_facts[].fact` 이름 예시:** {d['temporal_hint']}")
+            w("")
 
+    return "\n".join(lines) + "\n"
+
+
+def build_full() -> str:
+    """조립된 완성형 프롬프트 — Coarse 1 + Fine 4. 실제 전송 원문과 같다."""
+    coarse_prompt = coarse.build_prompt()
+    lines: list[str] = []
+    w = lines.append
+
+    w("<!-- 이 파일은 dump_prompts.py 가 생성한다. 손으로 고치지 마라. -->")
+    w("")
+    w("# Coarse / Fine 조립 완성형 프롬프트")
+    w("")
+    w("`PROMPTS.md` 가 부품(공통 블록 + 델타)을 보여 준다면, 이 문서는 **실제로 전송되는**")
+    w("조립 결과다. Fine 의 `{HINT_TYPE}`·`{HINT_SUMMARY}` 만 런타임에 후보 값으로 바뀐다.")
+    w("")
+    w("| 구분 | 원본 | 해시 |")
+    w("|---|---|---|")
+    w(f"| Coarse | `coarse_probe.py:PROMPT` (+ 조립) | `{sha12(coarse_prompt)}` |")
+    w(f"| Fine | `fine_probe.py:COMMON_BLOCK` + `DELTAS` | `{fine.prompt_fingerprint()}` ({fine.PROMPT_VERSION}) |")
+    w("")
+    w("---")
+    w("")
+    w("## 1. Coarse")
+    w("")
+    w(fence(coarse_prompt))
+    w("")
+    w("---")
+    w("")
+    w("## 2. Fine")
+    w("")
+    for i, etype in enumerate(fine.DELTAS, start=1):
+        w(f"### 2.{i} `{etype}`")
+        w("")
+        w(fence(fine.build_prompt(etype, "{{HINT_TYPE}}", "{{HINT_SUMMARY}}")))
+        w("")
     return "\n".join(lines) + "\n"
 
 
@@ -116,6 +160,9 @@ def main() -> None:
     md = build()
     OUT.write_text(md, encoding="utf-8")
     print(f"wrote {OUT}  ({len(md)} chars)")
+    full = build_full()
+    OUT_FULL.write_text(full, encoding="utf-8")
+    print(f"wrote {OUT_FULL}  ({len(full)} chars)")
 
 
 if __name__ == "__main__":
