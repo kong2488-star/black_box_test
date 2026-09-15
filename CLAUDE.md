@@ -104,6 +104,13 @@ python modules/search/dump_prompts.py
   pydantic 이 `List[Step]` 으로 먼저 매칭해 `UnknownStep` 으로 삼키고 필드가 전부 사라진다(검증은 통과).
 - **플래그를 믿지 말고 토큰 수로 확인한다.** 구간·fps 가 실제 전송됐는지는 `video 토큰/구간초` 로만
   검증된다(low@1fps≈100, high@1fps≈290, high@2fps≈553). 리포트가 이 값을 찍는다.
+  이제 `check_video_delivery()` 가 각 행에 `video_delivery_flag` 를 남기고 붕괴 시 경보를 찍는다.
+  `NOT_AUDITABLE` 은 통과가 아니라 미검사다.
+- **AVI 를 그대로 넣지 않는다 — `start_offset`/`end_offset` 이 조용히 무너진다.** 해상도·fps 는
+  AVI 에서도 정상인데(552 tok/초) 구간을 걸면 기대의 4.7%(137 tok)만 전달된다. 에러도 경고도 없다.
+  Coarse 도 같은 AVI 에서 7회 전부 후보 0건이었고, 무손실 리먹스한 mp4 에서는 4회 전부 1건이었다.
+  업로드 전에 `ffmpeg -i in.avi -map 0:v:0 -c:v copy -an -sn out.mp4` 로 리먹스한다(무손실·무비용).
+  실측: `modules/search/docs/avi-container-detection-loss.md`
 
 ## 이 탐침이 재지 못하는 것 (리포트도 이렇게 명시한다)
 

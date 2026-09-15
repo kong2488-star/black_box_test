@@ -69,6 +69,18 @@ MODEL = "gemini-3.7-flash"   # Coarse 와 같게 둔다. 변수를 하나만 바
 MEDIA_RESOLUTION = "high"    # 실선/점선·신호색 판별이 화질에 직접 걸린다
 FPS = 2.0                    # 짧은 구간이므로 Coarse(1.0)보다 올린다
 PADDING_SEC = 2.0            # 후보 span 앞뒤 여유. Fine 입력 = span ± padding
+
+# 구간·fps·해상도가 실제로 전달됐는지 검산하는 기준. video 모달리티 토큰 / 프레임.
+# coarse_probe.py 와 같은 값을 쓴다 — 한쪽을 고치면 다른 쪽도 고칠 것.
+#
+# ★ 실측 (2026-09-15):
+#     low  : mp4 65.9 · avi 90.9
+#     high : mp4 264.0 · chunks mp4 276.5
+#   보수적으로 낮은 쪽을 쓴다. 실측 붕괴는 12.5 tok/프레임이었다.
+# ★ medium / ultra_high 는 실측이 없어 비워 둔다. 지어내면 경보가 거짓말을 한다.
+VIDEO_TOKENS_PER_FRAME = {"low": 66.0, "high": 264.0}
+VIDEO_TOKENS_LOW_RATIO = 0.5
+VIDEO_TOKENS_HIGH_RATIO = 2.0
 CONCURRENCY = 3              # 무료 티어 rate limit이 실제 상한이다
 CLIP_SECONDS = 300           # Coarse 클립 길이. 원본 절대시각 환산용
 
@@ -552,7 +564,15 @@ def now_iso() -> str:
 
 def log(msg: str) -> None:
     with _print_lock:
-        print(msg, flush=True)
+        try:
+            print(msg, flush=True)
+        except UnicodeEncodeError:
+            # main() 은 stdout 을 utf-8 로 재설정하지만, 이 모듈을 import 해서 쓰는
+            # 경로는 그걸 안 거친다. cp949 콘솔에서 '—' 한 글자에 실행이 죽었다(실측).
+            # ★ 로그 때문에 실행이 죽으면 안 된다. 기록은 이미 jsonl 에 들어가 있고,
+            #   여기서 터지면 그 뒤 후보들이 통째로 날아간다.
+            enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+            print(msg.encode(enc, "replace").decode(enc, "replace"), flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -914,6 +934,105 @@ def modality_tokens(usage: dict | None, name: str) -> int | None:
     return None
 
 
+def check_video_delivery(usage: dict | None, seconds: float | None,
+                         fps: float | None, resolution: str | None) -> dict:
+    """요청한 구간·fps·해상도가 **실제로 전달됐는지** video 토큰으로 검산한다.
+
+    ★ 이 검산이 없어서 AVI + start_offset 조합이 조용히 통과했다.
+      5.5초 구간을 high@2fps 로 요청했는데 video 토큰이 137개(12.5 tok/프레임,
+      기대의 4.7%)만 왔다. 에러도 경고도 없었고 `ok: True` 로 기록됐다.
+      그 행의 NOT_OBSERVED 는 정지영상 한두 장을 보고 내린 판정이라 무효였다.
+      docs/avi-container-detection-loss.md 참조.
+
+    ★ 반대 방향도 잡는다. google-genai 2.12.1 은 processing 을 요청 본문에서 빼버려
+      8초 구간을 요청해도 클립 전체가 처리됐다 — 실측 5491 tok/프레임(기대의 20배).
+      check_sdk() 는 버전만 막는다. 함정이 **실제로 발현했는지**는 토큰으로만 안다.
+      `smoke` 회차가 그 증거로 jsonl 에 남아 있다.
+
+    ★ `or 0` 을 쓰지 않는다. 뭉개면 "영상이 안 왔다"와 "모달리티를 못 읽었다"가 같아진다.
+    """
+    vid = modality_tokens(usage, "video")
+    out: dict = {
+        "video_tokens": vid,
+        "video_tokens_per_sec": None,
+        "video_tokens_per_frame": None,
+        "video_tokens_expected": None,
+        "video_tokens_ratio": None,
+        "video_delivery_flag": None,
+    }
+    if vid is None:
+        out["video_delivery_flag"] = "NO_MODALITY"
+        return out
+    if not seconds or not fps:
+        return out
+
+    out["video_tokens_per_sec"] = round(vid / seconds, 1)
+    frames = seconds * fps
+    if frames <= 0:
+        return out
+    out["video_tokens_per_frame"] = round(vid / frames, 1)
+
+    per_frame = VIDEO_TOKENS_PER_FRAME.get((resolution or "").lower())
+    if per_frame is None:
+        out["video_delivery_flag"] = "NO_BASELINE"
+        return out
+
+    expected = per_frame * frames
+    out["video_tokens_expected"] = round(expected, 1)
+    ratio = vid / expected if expected else None
+    out["video_tokens_ratio"] = round(ratio, 3) if ratio is not None else None
+    if ratio is not None:
+        if ratio < VIDEO_TOKENS_LOW_RATIO:
+            out["video_delivery_flag"] = "VIDEO_TOKENS_LOW"
+        elif ratio > VIDEO_TOKENS_HIGH_RATIO:
+            out["video_delivery_flag"] = "VIDEO_TOKENS_HIGH"
+    return out
+
+
+def video_rate(row: dict) -> float | None:
+    """리포트용 tok/영상초. **video 모달리티 토큰 기준**이다.
+
+    ★ 예전 행은 `tokens_per_sec_of_video` 에 input_tokens 전체(텍스트 프롬프트 포함)를
+      구간 길이로 나눈 값이 들어 있다. 리포트는 jsonl 에서 파생되므로 여기서 usage 로
+      다시 계산해 옛 행까지 바로잡는다.
+    """
+    vid = modality_tokens(row.get("usage"), "video")
+    secs = (row.get("fine_clip_ms") or 0) / 1000
+    if vid is not None and secs:
+        return round(vid / secs, 1)
+    return row.get("tokens_per_sec_of_video")
+
+
+def delivery_flag(row: dict) -> str | None:
+    """행의 전달 flag. 없으면 usage 로 **소급 계산**한다.
+
+    ★ flag 필드는 2026-09-15 에 생겼다. 필드가 없다고 "붕괴 없음"이라고 쓰면
+      리포트가 거짓말을 한다 — 검사한 적이 없는 것과 통과한 것은 다르다.
+      리포트는 jsonl 에서 파생되므로 여기서 옛 행까지 다시 판정한다.
+    """
+    if row.get("video_delivery_flag"):
+        return row["video_delivery_flag"]
+    if not row.get("ok"):
+        return None
+    secs = (row.get("fine_clip_ms") or 0) / 1000
+    d = check_video_delivery(row.get("usage"), secs or None,
+                             row.get("fps"), row.get("media_resolution"))
+    if d["video_delivery_flag"] in ("NO_MODALITY", "NO_BASELINE"):
+        return "NOT_AUDITABLE"
+    if d["video_tokens_ratio"] is None:
+        return "NOT_AUDITABLE"
+    return d["video_delivery_flag"]
+
+
+def delivery_detail(row: dict) -> dict:
+    """리포트 표에 쓸 전달 검산 수치. 저장된 값이 없으면 소급 계산한다."""
+    if row.get("video_tokens_ratio") is not None:
+        return row
+    secs = (row.get("fine_clip_ms") or 0) / 1000
+    return {**row, **check_video_delivery(
+        row.get("usage"), secs or None, row.get("fps"), row.get("media_resolution"))}
+
+
 def all_evidence_ms(parsed: dict) -> list[int]:
     out: list[int] = []
     tgt = parsed.get("target") or {}
@@ -1180,9 +1299,11 @@ def process_candidate(client, ix, cand: dict, args, prompt_hash: str,
                 "active_wait_sec": round(active_wait_sec, 2),
                 "generate_sec": round(generate_sec, 2),
                 "usage": usage,
+                # ★ video 모달리티 토큰 기준이다. 예전에는 tok_in 전체를 나눠서
+                #   텍스트 프롬프트가 분자에 섞였다. 리포트는 video_rate() 로 다시 계산한다.
                 "tokens_per_sec_of_video": (
-                    round(tok_in / (clip_len_ms / 1000), 1)
-                    if tok_in is not None and clip_len_ms else None),
+                    round((modality_tokens(usage, "video") or 0) / (clip_len_ms / 1000), 1)
+                    if clip_len_ms else None),
                 "cost_usd_est": cost_usd(usage),
                 # ★ 성공해도 raw 를 남긴다. coarse 는 파싱 실패 시에만 남겼다.
                 #   강제 변환(coercion) 진단에 원문 구조가 필요하다.
@@ -1190,6 +1311,10 @@ def process_candidate(client, ix, cand: dict, args, prompt_hash: str,
                 "raw_text": mask_sensitive(text),
                 "parse_error": parse_error,
             })
+            # 구간이 실제로 전달됐는지 검산한다. 판정보다 먼저 봐야 하는 값이다.
+            row.update(check_video_delivery(
+                usage, clip_len_ms / 1000 if clip_len_ms else None,
+                args.fps, args.media_resolution))
 
             if parsed is not None:
                 verification = parsed.get("verification")
@@ -1227,6 +1352,12 @@ def process_candidate(client, ix, cand: dict, args, prompt_hash: str,
                 + (f", 위반 {','.join(viol)}" if viol else "")
                 + (f", 유출 {','.join(leak)}" if leak else "")
                 + ")")
+            # 붕괴는 조용히 지나가면 안 된다. 판정보다 이쪽이 먼저다.
+            if row.get("video_delivery_flag") in ("VIDEO_TOKENS_LOW", "VIDEO_TOKENS_HIGH"):
+                log(f"    !! {row['video_delivery_flag']} — video {row.get('video_tokens')} tok "
+                    f"= 기대 {row.get('video_tokens_expected')} 의 "
+                    f"{(row.get('video_tokens_ratio') or 0) * 100:.0f}%. "
+                    f"이 행의 판정은 신뢰할 수 없다.")
             return row
 
         except Exception as e:  # noqa: BLE001 — 어떤 실패든 기록하고 넘어간다
@@ -1338,8 +1469,44 @@ def write_report(all_rows: list[dict]) -> None:
         rows = [r for r in all_rows if (r.get("tag") or "default") == tag]
         _write_tag_section(L, tag, rows, len(tags) > 1)
 
+    _write_delivery_audit(L, all_rows)
     _write_shared_tail(L)
     REPORT_PATH.write_text("\n".join(L), encoding="utf-8")
+
+
+
+def _write_delivery_audit(L: list[str], all_rows: list[dict]) -> None:
+    """구간 전달 검산. 여기 걸린 행의 판정은 무효이므로 판정 분포보다 먼저 읽어야 한다."""
+    flags = {id(r): delivery_flag(r) for r in all_rows}
+    bad = [r for r in all_rows if flags[id(r)] in ("VIDEO_TOKENS_LOW", "VIDEO_TOKENS_HIGH")]
+    unknown = [r for r in all_rows if flags[id(r)] == "NOT_AUDITABLE"]
+    L.append("## 구간 전달 검산 (video 토큰 기준)")
+    L.append("")
+    if unknown:
+        L.append(f"- 검산 불가 {len(unknown)}건 — 구간 길이·해상도 기준·modality 중 "
+                 f"하나가 없다. **통과가 아니라 미검사다.**")
+    if not bad:
+        L.append(f"- 검산 가능한 {len(all_rows) - len(unknown)}건에서 붕괴 없음 "
+                 f"(기대 video 토큰의 50~200% 안).")
+    else:
+        L.append(f"- **{len(bad)}건에서 video 토큰이 기대를 벗어났다. 이 행들의 판정은 무효다.**")
+        L.append("")
+        L.append("| 후보 | tag | flag | 구간(s) | video tok | 기대 | 비율 |")
+        L.append("|---|---|---|---|---|---|---|")
+        for r in bad:
+            d = delivery_detail(r)
+            L.append(
+                f"| {d.get('candidate_key')} | {d.get('tag')} | `{flags[id(r)]}` | "
+                f"{(d.get('fine_clip_ms') or 0)/1000:.1f} | {fmt(d.get('video_tokens'))} | "
+                f"{fmt(d.get('video_tokens_expected'), '.0f')} | "
+                f"{(d.get('video_tokens_ratio') or 0) * 100:.0f}% |")
+    L.append("")
+    L.append("> `VIDEO_TOKENS_LOW` 는 요청한 구간이 실제로 전달되지 않았다는 뜻이다 "
+             "(실측: AVI + start_offset 에서 기대의 4.7%). "
+             "`VIDEO_TOKENS_HIGH` 는 구간 지정이 통째로 무시됐다는 뜻이다 "
+             "(실측: google-genai 2.12.1 에서 기대의 20배, 원가도 그만큼). "
+             "flag 가 비어 있는 옛 행은 이 검산이 생기기 전에 기록된 것이다.")
+    L.append("")
 
 
 def _write_tag_section(L: list[str], tag: str, rows: list[dict], multi: bool) -> None:
@@ -1441,7 +1608,7 @@ def _write_tag_section(L: list[str], tag: str, rows: list[dict], multi: bool) ->
             f"{fmt(first)} | {abs_timecode(r, first)} | {primitive_digest(r)} | "
             f"{','.join(viol) if viol else '-'} | {','.join(watch) if watch else '-'} | "
             f"{','.join(leak) if leak else '-'} | "
-            f"{fmt(r.get('tokens_per_sec_of_video'), '.0f')} | "
+            f"{fmt(video_rate(r), '.0f')} | "
             f"{fmt(r.get('cost_usd_est'), '.5f')} |"
         )
     L.append("")
