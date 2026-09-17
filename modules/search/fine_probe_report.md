@@ -1,13 +1,13 @@
 # Fine Probe Report
 
-생성: 2026-09-15T21:10:22+09:00  ·  원본 기록: `fine_probe_runs.jsonl` (56줄)
+생성: 2026-09-17T10:28:58+09:00  ·  원본 기록: `fine_probe_runs.jsonl` (60줄)
 
 > `fine_probe_runs.jsonl`에서 파생된 요약이다. `--report-only`로 다시 만들 수 있다.
 > **Recall은 측정하지 않았다.** 정답지가 없으므로 놓친 사건은 셀 수 없다.
 > 절대 시각 정확도도 여기 없다 — 화면시각 판독은 `readout` 소유다.
 > 비용은 파일 상단 단가 상수 기준 **추정치**이고, thought 토큰을 출력 단가로 계산했다(확인 대상).
 
-회차 8개: `bypass_141927`, `bypass_141927_mp4`, `guard_check`, `guard_check2`, `rep1_fine`, `run1`, `smoke`, `smoke2` — **합산하지 않는다.** 조건이 다르면 비교할 수 없다.
+회차 10개: `bypass_141927`, `bypass_141927_mp4`, `guard_check`, `guard_check2`, `model37_fine`, `model38_fine`, `rep1_fine`, `run1`, `smoke`, `smoke2` — **합산하지 않는다.** 조건이 다르면 비교할 수 없다.
 
 ---
 
@@ -384,6 +384,196 @@ kind : 자동 분류하지 않는다 — 아래 「자동으로 세지 않는 �
 
 - `primitive kind`: 값 4종 / 출현 7회 (값당 평균 1.8회) → **산문으로 나왔다** — 재사용되는 값이 없어 registry 자료가 되지 않는다
 - `temporal fact`: 값 4종 / 출현 6회 (값당 평균 1.5회) → **산문으로 나왔다** — 재사용되는 값이 없어 registry 자료가 되지 않는다
+
+산문으로 나온 항목은 **프롬프트가 그 항목의 예시를 주지 않았기 때문일 수 있다.**
+다음 회차에서 해당 델타에 코드 예시를 넣고 다시 보는 것이 한 가지 변경이다.
+
+---
+
+# 회차 `model37_fine`
+
+## Experiment Note
+
+> 양식은 `ktc4-chonnam-2/docs/modules/eval/experiment-guide.md`가 소유한다.
+> 프롬프트 전문은 여기 복사하지 않고 `prompt_version`으로 가리킨다(§7).
+
+```text
+[CASE]
+real  (강변북로 주행 원본 40분, 5분 클립 8개)
+visual event type: SOLID_LINE_LANE_CHANGE 2건
+positive / hard-negative:  정답지 없음 — 사람 확인 대상
+  ★ Coarse observed 텍스트에 점선 11건 / 실선 0건이다.
+    SOLID_LINE_LANE_CHANGE는 실선을 요구하므로 대부분 hard-negative로 보인다.
+source duration: 2개 클립에서 뽑은 후보
+
+[INPUT]
+user hint: (없음)
+ground-truth interval: 없음 — Coarse 후보 span ± padding 을 입력으로 썼다
+
+[PIPELINE]
+Coarse: gemini-3.7-flash / low / fps 1.0 / 5분 클립  (probe_report.md)
+Fine:   Structured  ·  model gemini-3.7-flash  ·  prompt_version fine-p2
+        clip_length 8~9s (평균 8.5s)
+        resolution high  ·  fps 2.0
+        fine_candidate_count 2  ·  tag model37_fine
+
+[RESULT]
+Recall@K / Final Recall@3      : 측정 불가 (정답지 없음)
+timestamp error                : 사람 확인 대상 — 아래 확인 표
+Fine Recall / HN-FPR / Precision: 사람 확인 대상
+verification 분포              : NOT_OBSERVED 2
+latency (Fine, 호출당)         : 중앙값 12.8s / 최대 12.8s
+tokens                         : 입력 12,214 · 출력 875 · thought 1,338
+cost                           : $0.0175 (추정)
+Fine exposure                  : 17초 (Coarse 원본 2400초 기준 0.7%)
+
+[FAILURE]
+stage: FINE
+kind : 자동 분류하지 않는다 — 아래 「자동으로 세지 않는 것」 참조
+
+[LEARNING]
+(실행 뒤 사람이 채운다 — 다음 실험에서 바꿀 한 가지)
+```
+
+## 후보별 결과
+
+| 후보 | 검증 유형 | 판정 | 구간(s) | 근거 시점 | 원본 위치 | primitives | 위반 | 신호 | 유출 | tok/s | 비용($) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 20260620_141927_EVT_1.mp4#0 | SOLID_LINE_LANE_CHANGE | **NOT_OBSERVED** | 10-19 | 0 | 20분54초 | WHITE_DASHED_LINE=PRESENT; WHITE_SOLID_LINE=ABSENT; TARGET_VEHICLE=PRE | - | - | - | 528 | 0.00895 |
+| 20260620_141956_EVT_1.mp4#0 | SOLID_LINE_LANE_CHANGE | **NOT_OBSERVED** | 10-18 | 0 | 21분34초 | WHITE_SOLID_LINE=ABSENT; WHITE_DASHED_LINE=PRESENT; TARGET_VEHICLE=PRE | - | - | - | 528 | 0.00850 |
+
+## 진단
+
+- 성공 2건 / 실패 0건 / 건너뜀 0건
+- 불변조건·관례 위반 0건
+- 경계 유출 스캔 0건 (패턴은 heuristic이다 — 0건이 유출 없음을 뜻하지 않는다)
+- 근거 시점의 기준: 구간 시작(0) 해석에 맞는 것 2건 / 클립 절대시간으로 보이는 것 0건
+    - **모델은 요청 구간의 시작을 0으로 쓴다.** 전량이 구간 안에 들어온다.
+      `abs_timecode` 환산이 맞다. (계약의 `at_offset_ms` 정의와도 같다.)
+
+- **★ 구간 지정이 먹지 않은 것으로 보이는 호출 2건**
+    - video 입력 토큰이 요청 구간이 아니라 **클립 전체** 분량이다.
+      `google-genai < 2.13` 은 `processing` 을 요청 본문에서 빼버린다 — 에러 없이 무시된다.
+    - `20260620_141927_EVT_1.mp4#0`: 요청 9초인데 video 4,752 tok (237 tok/클립초 — 클립 20초 전체 분량)
+    - `20260620_141956_EVT_1.mp4#0`: 요청 8초인데 video 4,224 tok (211 tok/클립초 — 클립 20초 전체 분량)
+    - **이 행들의 원가·토큰 수치를 Fine 실측으로 쓰지 말 것.**
+- 프롬프트(text) 토큰 중앙값 1,625 · 호출 2건 합계 3,238
+    - 후보당 1호출이므로 프롬프트가 매번 다시 청구된다. 후보 수가 많으면 프롬프트 길이가 원가 항목이 된다.
+- google-genai 버전: 2.21.0 2건
+- 클립 길이 출처: ffprobe 2건
+    - `assumed` 가 있으면 원본 위치 환산에 오차가 있다.
+      실측 길이는 304.30 / 298.97 / 244.50 처럼 300초가 아니다 (`ffmpeg -c copy` 는 키프레임 경계에서 자른다).
+      **`coarse_probe.py` 의 리포트는 300초 가정으로 환산하므로 마지막 클립에서 약 3.4초 어긋난다** — 별건으로 고칠 것.
+- thought 토큰을 보고한 호출 2 / 2건, 합계 1,338
+    - `UsageRecord` 계약에는 이 자리가 없다. 값이 실제로 온다는 근거다.
+- `total_tokens` 합 14,427 vs 입력+출력 13,089 vs 입력+출력+thought 14,427
+    - 어느 쪽과 맞는지가 계약 §8-4(`total = in + out`)의 성립 여부를 정한다.
+
+### 모델이 만들어낸 어휘
+
+계약이 `primitives[].kind` · `fact` · `uncertainties[].kind`의 값 목록을 Pending으로
+열어 두었다. 확정은 `modules/search/decisions/`의 별건이고, 이 표가 그 자료다.
+
+- **primitive kind** — `WHITE_DASHED_LINE`×2, `WHITE_SOLID_LINE`×2, `TARGET_VEHICLE`×2
+- **temporal fact** — 없음
+- **uncertainty kind** — 없음
+
+- `primitive kind`: 값 3종 / 출현 6회 (값당 평균 2.0회) → **코드로 수렴했다** — registry 후보로 쓸 수 있다
+
+산문으로 나온 항목은 **프롬프트가 그 항목의 예시를 주지 않았기 때문일 수 있다.**
+다음 회차에서 해당 델타에 코드 예시를 넣고 다시 보는 것이 한 가지 변경이다.
+
+---
+
+# 회차 `model38_fine`
+
+## Experiment Note
+
+> 양식은 `ktc4-chonnam-2/docs/modules/eval/experiment-guide.md`가 소유한다.
+> 프롬프트 전문은 여기 복사하지 않고 `prompt_version`으로 가리킨다(§7).
+
+```text
+[CASE]
+real  (강변북로 주행 원본 40분, 5분 클립 8개)
+visual event type: SOLID_LINE_LANE_CHANGE 2건
+positive / hard-negative:  정답지 없음 — 사람 확인 대상
+  ★ Coarse observed 텍스트에 점선 11건 / 실선 0건이다.
+    SOLID_LINE_LANE_CHANGE는 실선을 요구하므로 대부분 hard-negative로 보인다.
+source duration: 2개 클립에서 뽑은 후보
+
+[INPUT]
+user hint: (없음)
+ground-truth interval: 없음 — Coarse 후보 span ± padding 을 입력으로 썼다
+
+[PIPELINE]
+Coarse: gemini-3.7-flash / low / fps 1.0 / 5분 클립  (probe_report.md)
+Fine:   Structured  ·  model gemini-3.8-flash  ·  prompt_version fine-p2
+        clip_length 8~9s (평균 8.5s)
+        resolution high  ·  fps 2.0
+        fine_candidate_count 2  ·  tag model38_fine
+
+[RESULT]
+Recall@K / Final Recall@3      : 측정 불가 (정답지 없음)
+timestamp error                : 사람 확인 대상 — 아래 확인 표
+Fine Recall / HN-FPR / Precision: 사람 확인 대상
+verification 분포              : NOT_OBSERVED 2
+latency (Fine, 호출당)         : 중앙값 10.3s / 최대 10.3s
+tokens                         : 입력 12,214 · 출력 633 · thought 1,830
+cost                           : $0.0184 (추정)
+Fine exposure                  : 17초 (Coarse 원본 2400초 기준 0.7%)
+
+[FAILURE]
+stage: FINE
+kind : 자동 분류하지 않는다 — 아래 「자동으로 세지 않는 것」 참조
+
+[LEARNING]
+(실행 뒤 사람이 채운다 — 다음 실험에서 바꿀 한 가지)
+```
+
+## 후보별 결과
+
+| 후보 | 검증 유형 | 판정 | 구간(s) | 근거 시점 | 원본 위치 | primitives | 위반 | 신호 | 유출 | tok/s | 비용($) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 20260620_141927_EVT_1.mp4#0 | SOLID_LINE_LANE_CHANGE | **NOT_OBSERVED** | 10-19 | 0 | 20분54초 | WHITE_SOLID_LINE=ABSENT; WHITE_DASHED_LINE=PRESENT; TARGET_VEHICLE=PRE | - | - | - | 528 | 0.01025 |
+| 20260620_141956_EVT_1.mp4#0 | SOLID_LINE_LANE_CHANGE | **NOT_OBSERVED** | 10-18 | 0 | 21분34초 | WHITE_SOLID_LINE=ABSENT; WHITE_DASHED_LINE=PRESENT | - | - | - | 528 | 0.00815 |
+
+## 진단
+
+- 성공 2건 / 실패 0건 / 건너뜀 0건
+- 불변조건·관례 위반 0건
+- 경계 유출 스캔 0건 (패턴은 heuristic이다 — 0건이 유출 없음을 뜻하지 않는다)
+- 근거 시점의 기준: 구간 시작(0) 해석에 맞는 것 2건 / 클립 절대시간으로 보이는 것 0건
+    - **모델은 요청 구간의 시작을 0으로 쓴다.** 전량이 구간 안에 들어온다.
+      `abs_timecode` 환산이 맞다. (계약의 `at_offset_ms` 정의와도 같다.)
+
+- **★ 구간 지정이 먹지 않은 것으로 보이는 호출 2건**
+    - video 입력 토큰이 요청 구간이 아니라 **클립 전체** 분량이다.
+      `google-genai < 2.13` 은 `processing` 을 요청 본문에서 빼버린다 — 에러 없이 무시된다.
+    - `20260620_141956_EVT_1.mp4#0`: 요청 8초인데 video 4,224 tok (211 tok/클립초 — 클립 20초 전체 분량)
+    - `20260620_141927_EVT_1.mp4#0`: 요청 9초인데 video 4,752 tok (237 tok/클립초 — 클립 20초 전체 분량)
+    - **이 행들의 원가·토큰 수치를 Fine 실측으로 쓰지 말 것.**
+- 프롬프트(text) 토큰 중앙값 1,625 · 호출 2건 합계 3,238
+    - 후보당 1호출이므로 프롬프트가 매번 다시 청구된다. 후보 수가 많으면 프롬프트 길이가 원가 항목이 된다.
+- google-genai 버전: 2.21.0 2건
+- 클립 길이 출처: ffprobe 2건
+    - `assumed` 가 있으면 원본 위치 환산에 오차가 있다.
+      실측 길이는 304.30 / 298.97 / 244.50 처럼 300초가 아니다 (`ffmpeg -c copy` 는 키프레임 경계에서 자른다).
+      **`coarse_probe.py` 의 리포트는 300초 가정으로 환산하므로 마지막 클립에서 약 3.4초 어긋난다** — 별건으로 고칠 것.
+- thought 토큰을 보고한 호출 2 / 2건, 합계 1,830
+    - `UsageRecord` 계약에는 이 자리가 없다. 값이 실제로 온다는 근거다.
+- `total_tokens` 합 14,677 vs 입력+출력 12,847 vs 입력+출력+thought 14,677
+    - 어느 쪽과 맞는지가 계약 §8-4(`total = in + out`)의 성립 여부를 정한다.
+
+### 모델이 만들어낸 어휘
+
+계약이 `primitives[].kind` · `fact` · `uncertainties[].kind`의 값 목록을 Pending으로
+열어 두었다. 확정은 `modules/search/decisions/`의 별건이고, 이 표가 그 자료다.
+
+- **primitive kind** — `WHITE_SOLID_LINE`×2, `WHITE_DASHED_LINE`×2, `TARGET_VEHICLE`×1
+- **temporal fact** — 없음
+- **uncertainty kind** — 없음
+
+- `primitive kind`: 값 3종 / 출현 5회 (값당 평균 1.7회) → **산문으로 나왔다** — 재사용되는 값이 없어 registry 자료가 되지 않는다
 
 산문으로 나온 항목은 **프롬프트가 그 항목의 예시를 주지 않았기 때문일 수 있다.**
 다음 회차에서 해당 델타에 코드 예시를 넣고 다시 보는 것이 한 가지 변경이다.

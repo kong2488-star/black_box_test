@@ -611,6 +611,26 @@ def delivery_detail(row: dict) -> dict:
         row.get("fps"), row.get("media_resolution"))}
 
 
+def cost_usd(usage: dict) -> float | None:
+    """thought 토큰은 출력 단가로 본다. 확인 대상이며 리포트에 그렇게 적는다.
+
+    fine_probe.py 에서 역이식 (2026-09-16). 두 스크립트가 같아야 한다.
+
+    ★ 이전 coarse 는 thought 를 빼고 계산했다. CLAUDE.md 불변식이 금지한 바로 그 형태다.
+      3.7-flash 에서는 thought 가 수백 토큰이라 티가 안 났지만, 3.8-flash 실측에서
+      thought 5,356 / output 151 이 나왔다 — 원가가 9.7배 과소 보고된다.
+      모델을 바꾸면 조용히 틀린 숫자가 나오는 자리였다.
+    """
+    ti = usage.get("input_tokens")
+    to = usage.get("output_tokens")
+    if ti is None or to is None:
+        return None
+    th = usage.get("thought_tokens") or 0
+    return round(
+        ti / 1_000_000 * PRICE_IN_PER_1M_USD
+        + (to + th) / 1_000_000 * PRICE_OUT_PER_1M_USD, 6)
+
+
 def read_usage(resp) -> dict:
     """usage 를 전량 읽는다. None 과 0 을 구분한다. (fine_probe.py 와 같은 구현)"""
     u = getattr(resp, "usage", None)
@@ -834,9 +854,7 @@ def process_clip(client, ix, clip: dict, prompt: str, args, prompt_hash: str,
                     round((modality_tokens(usage, "video") or 0)
                           / (clip_seconds or CLIP_SECONDS), 1)
                     if (clip_seconds or CLIP_SECONDS) else None),
-                "cost_usd_est": round(
-                    tok_in / 1_000_000 * PRICE_IN_PER_1M_USD
-                    + tok_out / 1_000_000 * PRICE_OUT_PER_1M_USD, 6),
+                "cost_usd_est": cost_usd(usage),
                 "candidate_count": len(candidates) if candidates is not None else None,
                 # 모델 출력에 번호판이 섞여 나온다. 저장 전에 마스킹한다.
                 "candidates": mask_candidates(candidates),
@@ -978,7 +996,7 @@ def write_report(rows: list[dict]) -> None:
 
                 s_in += r.get("input_tokens") or 0
                 s_out += r.get("output_tokens") or 0
-                s_cost += r.get("cost_usd_est") or 0
+                s_cost += (cost_usd(r.get("usage") or {}) or r.get("cost_usd_est") or 0)
                 g_secs += (r.get("clip_seconds")
                            or (starts.get(r.get("clip_path")) or {}).get("duration_sec")
                            or CLIP_SECONDS)
@@ -992,7 +1010,8 @@ def write_report(rows: list[dict]) -> None:
                 lines.append(
                     f"| {r.get('clip')} | {fmt(cc)} | {fmt(r.get('input_tokens'))} | "
                     f"{fmt(r.get('output_tokens'))} | {fmt(video_rate(r), '.1f')} | "
-                    f"{fmt(r.get('generate_sec'), '.1f')} | {fmt(r.get('cost_usd_est'), '.5f')} | "
+                    f"{fmt(r.get('generate_sec'), '.1f')} | "
+                    f"{fmt(cost_usd(r.get('usage') or {}) or r.get('cost_usd_est'), '.5f')} | "
                     f"{top_candidate_summary(r, starts)} |"
                 )
 
