@@ -97,11 +97,6 @@ PRICE_OUT_PER_1M_USD = 3.75
 # 이벤트 유형 — 계약 이름을 쓴다
 #
 # contract-visual-evidence.md §4-2 의 닫힌 enum 이다.
-# Coarse 탐침은 아직 옛 이름 LANE_CHANGE 를 쓰고 있다. 2026-09-05 ADR 이
-# LANE_CHANGE -> SOLID_LINE_LANE_CHANGE 로 전량 교체했다.
-# Coarse 상수를 고치면 기존 45건과 비교가 끊기므로 여기서 매핑하고,
-# 매핑했다는 사실을 각 row 에 남긴다 — 그래야 NOT_OBSERVED 폭증이
-# 매핑 탓인지 모델 탓인지 갈린다.
 # ---------------------------------------------------------------------------
 
 EVENT_TYPES = [
@@ -111,7 +106,7 @@ EVENT_TYPES = [
     "MOTORCYCLE_HELMET_NON_USE",
 ]
 
-COARSE_TO_CONTRACT = {
+LEGACY_COARSE_TO_CONTRACT = {
     "LANE_CHANGE": "SOLID_LINE_LANE_CHANGE",   # 옛 이름
 }
 
@@ -624,7 +619,7 @@ def collect_candidates(coarse_rows: list[dict], coarse_tag: str | None,
             if start is None or end is None:
                 continue
             raw_type = c.get("event_type") or "NONE"
-            mapped = COARSE_TO_CONTRACT.get(raw_type, raw_type)
+            mapped = LEGACY_COARSE_TO_CONTRACT.get(raw_type, raw_type)
             g = geo.get(r.get("clip_path")) or {
                 "duration_sec": float(CLIP_SECONDS), "start_sec": 0.0, "source": "assumed"}
             out.append({

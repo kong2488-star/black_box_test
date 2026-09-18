@@ -91,7 +91,7 @@ def build() -> str:
     w("")
 
     # -- Fine 델타 4종 -------------------------------------------------------
-    remap = {v: k for k, v in fine.COARSE_TO_CONTRACT.items() if v != k}
+    remap = {v: k for k, v in fine.LEGACY_COARSE_TO_CONTRACT.items() if v != k}
     for i, (etype, d) in enumerate(fine.DELTAS.items(), start=1):
         w(f"### 2.{i} `{etype}`")
         w("")
